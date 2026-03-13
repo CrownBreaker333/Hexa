@@ -1,0 +1,10 @@
+{
+  "1476167671375466516": {
+    "dailyLimit": 10,
+    "defaultPersonality": "professional",
+    "moderationEnabled": true,
+    "analyticsEnabled": true,
+    "allowImageGeneration": true,
+    "prefix": "/"
+  }
+}
