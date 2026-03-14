@@ -55,7 +55,7 @@ module.exports = {
         }
 
         try {
-            // Find or create thread for this user
+            // Find or create thread
             let thread = await findOrCreateThread(interaction, userId);
 
             if (!thread) {
@@ -78,7 +78,7 @@ module.exports = {
                 ? answer.substring(0, 1700) + '...\n\n*(Response truncated)*'
                 : answer;
 
-            // Create response embed for thread
+            // Create response embed
             const responseEmbed = new EmbedBuilder()
                 .setColor(0x00D9FF)
                 .setAuthor({ name: 'HEXA', iconURL: interaction.client.user.avatarURL() })
@@ -178,6 +178,12 @@ async function findOrCreateThread(interaction, userId) {
     try {
         const channel = interaction.channel;
         const user = interaction.user;
+
+        // Safety check — make sure channel exists and supports threads
+        if (!channel || !channel.threads) {
+            console.error('[THREADS] Channel does not support threads');
+            return null;
+        }
 
         // Look for existing thread
         const threadName = `Chat — ${user.username}`;
