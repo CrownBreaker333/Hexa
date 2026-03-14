@@ -1,8 +1,4 @@
-// CHAT COMMAND
-// Core AI chat command - available to all users
-// Premium features shown as "coming soon" until payment is integrated
-
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const { askAI } = require('../utils/aiClient');
 const { getUsage, incrementUsage, canUse } = require('../utils/limits');
 const { getDailyLimit, getUserTier } = require('../utils/premium');
@@ -16,23 +12,22 @@ const { flagProhibited } = require('../utils/flagSystem');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('chat')
-        .setDescription('Ask Hexa anything!')
+        .setDescription('Chat with HEXA AI in an organized thread')
         .addStringOption(option =>
             option.setName('question')
-                .setDescription('Your question for Hexa')
+                .setDescription('Your question for HEXA')
                 .setRequired(true)
         ),
 
     async execute(interaction) {
-        // Defer immediately — must be first to prevent interaction timeout
-        // regardless of language, response speed, or check results
         await interaction.deferReply();
 
         const userId = interaction.user.id;
         const guildId = interaction.guildId;
         const tier = getUserTier(userId);
+        const question = interaction.options.getString('question');
 
-        // Check daily usage limit — use editReply since we already deferred
+        // Check daily usage limit
         const dailyLimit = getDailyLimit(userId, guildId);
         if (!canUse(userId, dailyLimit)) {
             return interaction.editReply({
@@ -40,12 +35,10 @@ module.exports = {
             });
         }
 
-        const question = interaction.options.getString('question');
-
-        // Sanitize prompt — strip injected slash command attempts
+        // Sanitize prompt
         const sanitizedQuestion = question.replace(/\/[a-z]+\s/gi, '').trim();
 
-        // Flag check — notifies dev if user hits thresholds
+        // Flag check
         const flagResult = flagProhibited(userId, guildId, sanitizedQuestion);
         if (flagResult && (flagResult.shouldKick || flagResult.shouldBan)) {
             const devId = process.env.DEV_ID;
@@ -62,25 +55,38 @@ module.exports = {
         }
 
         try {
+            // Find or create thread for this user
+            let thread = await findOrCreateThread(interaction, userId);
+
+            if (!thread) {
+                return interaction.editReply('Failed to create chat thread. Try again.');
+            }
+
+            // Get AI response
             const answer = await askAI(userId, sanitizedQuestion, guildId);
             incrementUsage(userId);
 
-            // Save to memory log (for /viewmemory and /personalhistory)
+            // Save to memory
             try {
                 saveConversation(userId, sanitizedQuestion, answer);
             } catch (e) {
                 console.error('Error saving conversation to memory:', e);
             }
 
-            // Truncate response if over Discord's 2000 char limit
+            // Truncate if needed
             const truncatedAnswer = answer.length > 1700
                 ? answer.substring(0, 1700) + '...\n\n*(Response truncated)*'
                 : answer;
 
-            // Show the user's question above Hexa's response for context
-            const displayAnswer = `> ${sanitizedQuestion}\n\n${truncatedAnswer}`;
+            // Create response embed for thread
+            const responseEmbed = new EmbedBuilder()
+                .setColor(0x00D9FF)
+                .setAuthor({ name: 'HEXA', iconURL: interaction.client.user.avatarURL() })
+                .setDescription(truncatedAnswer)
+                .setFooter({ text: `Tier: ${tier}` })
+                .setTimestamp();
 
-            // Rating buttons — added after streaming completes
+            // Rating buttons
             const ratingRow = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
@@ -93,7 +99,7 @@ module.exports = {
                         .setStyle(ButtonStyle.Secondary)
                 );
 
-            // Clear history button for PREMIUM and PRO users
+            // Clear history button for premium users
             if (tier === 'PREMIUM' || tier === 'PRO') {
                 ratingRow.addComponents(
                     new ButtonBuilder()
@@ -103,13 +109,23 @@ module.exports = {
                 );
             }
 
-            await interaction.editReply({
-                content: displayAnswer,
+            // Send to thread
+            const threadMessage = await thread.send({
+                embeds: [responseEmbed],
                 components: [ratingRow]
             });
 
-            // Button collector — active for 5 minutes
-            const collector = interaction.channel.createMessageComponentCollector({
+            // Reply to original interaction
+            const threadEmbed = new EmbedBuilder()
+                .setColor(0x00D9FF)
+                .setTitle('Chat Started!')
+                .setDescription(`Your conversation is in the thread. Keep chatting there!`)
+                .setFooter({ text: 'HEXA AI' });
+
+            await interaction.editReply({ embeds: [threadEmbed] });
+
+            // Button collector
+            const collector = thread.createMessageComponentCollector({
                 filter: i => i.user.id === userId && (
                     i.customId.startsWith('rate_') || i.customId.startsWith('clear_')
                 ),
@@ -137,22 +153,53 @@ module.exports = {
             });
 
             collector.on('end', () => {
-                // Disable buttons after timeout
                 const disabledRow = new ActionRowBuilder()
                     .addComponents(
                         ratingRow.components.map(btn =>
                             ButtonBuilder.from(btn.toJSON()).setDisabled(true)
                         )
                     );
-                interaction.editReply({ components: [disabledRow] }).catch(() => {});
+                threadMessage.edit({ components: [disabledRow] }).catch(() => {});
             });
+
+            console.log(`[CHAT] Response sent in thread: ${thread.name}`);
 
         } catch (err) {
             console.error('Chat command error:', err);
             await interaction.editReply({
-                content: 'Something went wrong while processing your request. Please try again.',
+                content: 'Something went wrong. Please try again.',
                 components: []
             });
         }
     }
 };
+
+async function findOrCreateThread(interaction, userId) {
+    try {
+        const channel = interaction.channel;
+        const user = interaction.user;
+
+        // Look for existing thread
+        const threadName = `Chat — ${user.username}`;
+        const existingThread = channel.threads.cache.find(t => t.name === threadName && !t.archived);
+
+        if (existingThread) {
+            console.log(`[THREADS] Using existing thread: ${existingThread.name}`);
+            return existingThread;
+        }
+
+        // Create new thread
+        const newThread = await channel.threads.create({
+            name: threadName,
+            autoArchiveDuration: 60,
+            reason: `AI chat thread for ${user.username}`
+        });
+
+        console.log(`[THREADS] Created new thread: ${newThread.name}`);
+        return newThread;
+
+    } catch (error) {
+        console.error('[THREADS] Error creating thread:', error.message);
+        return null;
+    }
+}
