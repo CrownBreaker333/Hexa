@@ -117,7 +117,7 @@ async function askGemini(messages, systemPrompt) {
             throw new Error('Gemini API key not configured');
         }
 
-        const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = client.getGenerativeModel({ model: 'gemini-3.1-pro' });
 
         // Convert messages to Gemini format
         const geminiMessages = messages
