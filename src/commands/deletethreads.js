@@ -15,30 +15,42 @@ module.exports = {
 
         const channel = interaction.channel;
         
-        if (!channel.threads) {
-            return interaction.editReply('This channel does not support threads.');
+        if (!channel.isTextBased()) {
+            return interaction.editReply('This command only works in text channels.');
         }
 
         try {
-            const threads = await channel.threads.fetchActive();
-            const count = threads.size;
+            let deleted = 0;
 
-            if (count === 0) {
-                return interaction.editReply('No active threads to delete.');
+            // Delete active threads
+            const activeThreads = await channel.threads.fetchActive();
+            for (const [id, thread] of activeThreads) {
+                try {
+                    await thread.delete();
+                    deleted++;
+                    console.log(`[THREADS] Deleted: ${thread.name}`);
+                } catch (err) {
+                    console.error(`[THREADS] Failed: ${err.message}`);
+                }
             }
 
-            for (const [id, thread] of threads) {
-                await thread.delete().catch(err => {
-                    console.error(`Failed to delete thread ${id}:`, err.message);
-                });
+            // Delete archived threads
+            const archivedThreads = await channel.threads.fetchArchived({ limit: 100 });
+            for (const thread of archivedThreads.threads) {
+                try {
+                    await thread.delete();
+                    deleted++;
+                    console.log(`[THREADS] Deleted: ${thread.name}`);
+                } catch (err) {
+                    console.error(`[THREADS] Failed: ${err.message}`);
+                }
             }
 
-            await interaction.editReply(`✅ Deleted ${count} thread(s)!`);
-            console.log(`[ADMIN] Deleted ${count} threads`);
+            await interaction.editReply(`✅ Deleted ${deleted} thread(s)!`);
 
         } catch (error) {
-            console.error('Delete threads error:', error);
-            await interaction.editReply('Failed to delete threads.');
+            console.error('[THREADS] Error:', error.message);
+            await interaction.editReply(`Error: ${error.message}`);
         }
     }
 };
