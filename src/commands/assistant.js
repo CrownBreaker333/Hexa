@@ -15,8 +15,7 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply();
-
+        await interaction.deferReply({ flags: 64 });
         if (!interaction.channel.isThread()) {
             return interaction.editReply('This command only works in chat threads. Use `/chat` to create one.');
         }
