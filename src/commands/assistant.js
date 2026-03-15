@@ -118,18 +118,3 @@ function setupNaturalChat(thread, userId, guildId, tier, client) {
         }
     });
 }
-```
-
----
-
-**And delete `src/events/threadChat.js`** (the @HEXA one)
-
----
-
-**Now the flow is:**
-```
-1. /chat → Creates thread
-2. /assistant hello → HEXA responds, listener starts
-3. User: tell me more → HEXA responds automatically
-4. User: how are you → HEXA responds automatically
-5. (continues for 1 hour of inactivity)
