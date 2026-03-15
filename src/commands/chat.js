@@ -26,7 +26,7 @@ module.exports = {
                 const embed = new EmbedBuilder()
                     .setColor(0x00D9FF)
                     .setTitle('Thread Already Open')
-                    .setDescription(`Your chat thread is already open. Go to the thread and use \`/assistant\` or mention \`@HEXA\` to start chatting!`)
+                    .setDescription(`Your chat thread is already open. Go to the thread and use \`/assistant your message\` to start chatting!`)
                     .setFooter({ text: 'HEXA AI' });
 
                 return interaction.editReply({ embeds: [embed] });
@@ -42,7 +42,7 @@ module.exports = {
             const embed = new EmbedBuilder()
                 .setColor(0x00D9FF)
                 .setTitle('Chat Thread Created!')
-                .setDescription(`Your thread is ready! Go to the thread and use:\n\n\`/assistant your message\`\n\nOR\n\n\`@HEXA your message\`\n\nto start chatting with HEXA.`)
+                .setDescription(`Your thread is ready!\n\nGo to the thread and type:\n\n\`/assistant your message\`\n\nThen just chat naturally — I'll respond automatically!`)
                 .setFooter({ text: 'HEXA AI' });
 
             await interaction.editReply({ embeds: [embed] });
