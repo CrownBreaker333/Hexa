@@ -1,6 +1,5 @@
 // AI CLIENT
-// Handles requests to Groq with multi-turn conversation context
-// All users get session memory. PREMIUM/PRO get deeper persisted memory.
+// Handles requests to Groq with Gemini fallback for redundancy
 
 const { getUserPersona } = require('./personalities');
 const { getConversationHistory, addMessage } = require('./conversation');
@@ -9,18 +8,32 @@ const { hasHarmfulContent, sanitizeResponse, flagContent } = require('./moderati
 const { trackQuery } = require('./analytics');
 const { getUserTier } = require('./premium');
 const Groq = require('groq-sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// Lazy initialization — avoids crash at startup if GROQ_API_KEY is missing
+// Lazy initialization
 let groqClient = null;
+let geminiClient = null;
+
 function getGroqClient() {
     if (!groqClient) {
         if (!process.env.GROQ_API_KEY) {
-            throw new Error('GROQ_API_KEY is not set in your .env file.');
+            throw new Error('GROQ_API_KEY is not set');
         }
         groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
     }
     return groqClient;
+}
+
+function getGeminiClient() {
+    if (!geminiClient) {
+        if (!process.env.GEMINI_API_KEY) {
+            console.warn('GEMINI_API_KEY not set — Gemini fallback unavailable');
+            return null;
+        }
+        geminiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    }
+    return geminiClient;
 }
 
 const MODELS = {
@@ -41,10 +54,6 @@ function detectTaskType(prompt) {
     return 'fast';
 }
 
-// ─── Human-like system prompt ─────────────────────────────────────────────────
-// Instructs the AI to respond like a real person, not a robotic assistant.
-// Covers tone, language handling, formatting, and natural conversation style.
-
 function buildSystemPrompt(persona) {
     const base = `You are Hexa — a sharp, warm, and genuinely helpful assistant living inside Discord.
 
@@ -64,7 +73,7 @@ Language:
 
 Formatting:
 - For Discord, use markdown naturally: **bold** for emphasis, \`code blocks\` for code, bullet points only when listing genuinely separate things.
-- Never use headers like "## Introduction" in casual conversation. That is a document, not a chat.
+- Never use headers like "## Introduction" in casual conversation.
 - Keep responses tight. Discord is a chat app — walls of text get ignored.`;
 
     const personaMap = {
@@ -81,12 +90,65 @@ Formatting:
     return personaMap[persona] || base;
 }
 
+// ─── Groq API Call ─────────────────────────────────────────────────────────
+
+async function askGroq(messages, model) {
+    try {
+        const client = getGroqClient();
+        const response = await client.chat.completions.create({
+            messages,
+            model,
+            max_tokens: 1000,
+            temperature: 0.8
+        });
+        return response.choices[0].message.content;
+    } catch (error) {
+        console.error(`[GROQ] Error with model ${model}:`, error.message);
+        throw error;
+    }
+}
+
+// ─── Gemini API Call ─────────────────────────────────────────────────────────
+
+async function askGemini(messages, systemPrompt) {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            throw new Error('Gemini API key not configured');
+        }
+
+        const model = client.getGenerativeModel({ model: 'gemini-pro' });
+
+        // Convert messages to Gemini format
+        const geminiMessages = messages
+            .filter(m => m.role !== 'system')
+            .map(m => ({
+                role: m.role === 'user' ? 'user' : 'model',
+                parts: [{ text: m.content }]
+            }));
+
+        const response = await model.generateContent({
+            contents: geminiMessages,
+            systemInstruction: systemPrompt,
+            generationConfig: {
+                maxOutputTokens: 1000,
+                temperature: 0.8
+            }
+        });
+
+        return response.response.text();
+    } catch (error) {
+        console.error(`[GEMINI] Error:`, error.message);
+        throw error;
+    }
+}
+
 // ─── Core AI function ─────────────────────────────────────────────────────────
 
 async function askAI(userId, prompt, guildId = null) {
     const startTime = Date.now();
 
-    // Moderation first — prohibited prompts never reach cache or AI
+    // Moderation first
     if (hasHarmfulContent(prompt)) {
         flagContent(userId, prompt, 'high', guildId);
         return 'I cannot respond to that request. Please ask me something else.';
@@ -118,16 +180,32 @@ async function askAI(userId, prompt, guildId = null) {
     const fallbackModel = taskType === 'reasoning' ? MODELS.fast : MODELS.reasoning;
 
     let response;
+
+    // PRIMARY: Try Groq first
     try {
+        console.log(`[AI] Attempting Groq (${primaryModel})...`);
         response = await askGroq(messages, primaryModel);
-    } catch (error) {
-        console.error(`Primary model ${primaryModel} failed:`, error.message);
+        console.log(`[AI] SUCCESS: Groq responded`);
+    } catch (groqError) {
+        console.error(`[AI] Groq failed:`, groqError.message);
+
+        // SECONDARY: Try Groq fallback model
         try {
-            // Fallback without streaming to keep it simple
+            console.log(`[AI] Attempting Groq fallback (${fallbackModel})...`);
             response = await askGroq(messages, fallbackModel);
-        } catch (fallbackError) {
-            console.error(`Fallback model ${fallbackModel} failed:`, fallbackError.message);
-            return 'Sorry, I am having trouble responding right now. Please try again later.';
+            console.log(`[AI] SUCCESS: Groq fallback responded`);
+        } catch (groqFallbackError) {
+            console.error(`[AI] Groq fallback failed:`, groqFallbackError.message);
+
+            // TERTIARY: Try Gemini
+            try {
+                console.log(`[AI] Attempting Gemini fallback...`);
+                response = await askGemini(messages, systemPrompt);
+                console.log(`[AI] SUCCESS: Gemini responded`);
+            } catch (geminiError) {
+                console.error(`[AI] All providers failed:`, geminiError.message);
+                return 'Sorry, I am having trouble responding right now. Please try again later.';
+            }
         }
     }
 
@@ -148,19 +226,9 @@ async function askAI(userId, prompt, guildId = null) {
     return response;
 }
 
-async function askGroq(messages, model) {
-    const client = getGroqClient();
-    const response = await client.chat.completions.create({
-        messages,
-        model,
-        max_tokens: 1000,
-        temperature: 0.8
-    });
-    return response.choices[0].message.content;
-}
-
 module.exports = {
     askAI,
     askGroq,
+    askGemini,
     buildSystemPrompt
 };
