@@ -22,27 +22,18 @@ module.exports = {
         try {
             let deleted = 0;
 
-            // Delete active threads
+            // Fetch and delete all active threads
             const activeThreads = await channel.threads.fetchActive();
-            for (const [id, thread] of activeThreads) {
-                try {
-                    await thread.delete();
-                    deleted++;
-                    console.log(`[THREADS] Deleted: ${thread.name}`);
-                } catch (err) {
-                    console.error(`[THREADS] Failed: ${err.message}`);
-                }
-            }
-
-            // Delete archived threads
-            const archivedThreads = await channel.threads.fetchArchived({ limit: 100 });
-            for (const thread of archivedThreads.threads) {
-                try {
-                    await thread.delete();
-                    deleted++;
-                    console.log(`[THREADS] Deleted: ${thread.name}`);
-                } catch (err) {
-                    console.error(`[THREADS] Failed: ${err.message}`);
+            
+            if (activeThreads.threads && activeThreads.threads.length > 0) {
+                for (const thread of activeThreads.threads) {
+                    try {
+                        await thread.delete();
+                        deleted++;
+                        console.log(`[THREADS] Deleted: ${thread.name}`);
+                    } catch (err) {
+                        console.error(`[THREADS] Failed to delete: ${err.message}`);
+                    }
                 }
             }
 
