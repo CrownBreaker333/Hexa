@@ -14,29 +14,28 @@ module.exports = {
         }
 
         const channel = interaction.channel;
-        
-        if (!channel.isTextBased()) {
-            return interaction.editReply('This command only works in text channels.');
-        }
 
         try {
             let deleted = 0;
 
-            // Fetch and delete all active threads
-            const activeThreads = await channel.threads.fetchActive();
-            
-            if (activeThreads.threads && activeThreads.threads.length > 0) {
-                for (const thread of activeThreads.threads) {
+            // Keep fetching and deleting until none left
+            while (true) {
+                const threads = await channel.threads.fetchActive();
+                
+                if (!threads || threads.size === 0) break;
+
+                for (const [id, thread] of threads) {
                     try {
                         await thread.delete();
                         deleted++;
                         console.log(`[THREADS] Deleted: ${thread.name}`);
                     } catch (err) {
-                        console.error(`[THREADS] Failed to delete: ${err.message}`);
+                        console.error(`[THREADS] Error deleting ${thread.name}:`, err.message);
                     }
                 }
             }
 
+            console.log(`[THREADS] Total deleted: ${deleted}`);
             await interaction.editReply(`✅ Deleted ${deleted} thread(s)!`);
 
         } catch (error) {
