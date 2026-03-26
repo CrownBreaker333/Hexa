@@ -1,240 +1,330 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('autosetup')
-        .setDescription('Automatically set up HEXA in your server')
+        .setDescription('⚡ Advanced server setup wizard - Configure your entire server in seconds!')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction) {
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply();
 
-        const guild = interaction.guild;
+        const guildId = interaction.guildId;
+        const userId = interaction.user.id;
 
-        try {
-            // Step 1: Create channels
-            const channels = await createChannels(guild);
+        // Step 1: Server Type Selection
+        const typeEmbed = new EmbedBuilder()
+            .setColor(0x00D9FF)
+            .setTitle('🚀 HEXA Server Setup Wizard')
+            .setDescription('**Step 1/9: What type of server are you creating?**\n\nSelect your server type to customize the setup experience.')
+            .setFooter({ text: 'HEXA AutoSetup | Step 1 of 9' });
 
-            // Step 2: Create roles
-            const roles = await createRoles(guild);
+        const typeButtons = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('type_gaming')
+                    .setLabel('🎮 Gaming')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('type_study')
+                    .setLabel('📚 Study')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('type_business')
+                    .setLabel('💼 Business')
+                    .setStyle(ButtonStyle.Primary)
+            )
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('type_community')
+                    .setLabel('👥 Community')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('type_creative')
+                    .setLabel('🎨 Creative')
+                    .setStyle(ButtonStyle.Primary)
+            );
 
-            // Step 3: Set up verification system
-            await setupVerification(guild, channels, roles);
+        const typeMessage = await interaction.editReply({
+            embeds: [typeEmbed],
+            components: [typeButtons]
+        });
 
-            // Step 4: Send welcome messages
-            await sendWelcomeMessages(guild, channels);
+        // Create collector
+        const typeCollector = typeMessage.createMessageComponentCollector({
+            filter: i => i.user.id === userId,
+            time: 300000
+        });
 
-            // Step 5: Set permissions
-            await setChannelPermissions(guild, channels, roles);
+        let serverType = null;
 
-            // Final confirmation
-            const embed = new EmbedBuilder()
+        typeCollector.on('collect', async (buttonInteraction) => {
+            await buttonInteraction.deferUpdate();
+
+            serverType = buttonInteraction.customId.replace('type_', '');
+
+            console.log(`[AUTOSETUP] User ${userId} selected type: ${serverType}`);
+
+            // Step 2: Confirm & Get Channel Names
+            const confirmEmbed = new EmbedBuilder()
                 .setColor(0x00D9FF)
-                .setTitle('HEXA Auto Setup Complete!')
-                .setDescription(
-                    `Your server is now fully configured.\n\n` +
-                    `Created:\n` +
-                    `• #verify channel for verification\n` +
-                    `• #announcements for updates\n` +
-                    `• #rules for server rules\n` +
-                    `• #hexa-dev-hub for AI chat\n` +
-                    `• Verified role (green)\n` +
-                    `• Unverified role (red)\n\n` +
-                    `Users can now:\n` +
-                    `• Run /verify to get access\n` +
-                    `• Chat with HEXA using /chat\n` +
-                    `• Check weather with /weather\n` +
-                    `• Use all HEXA features!\n\n` +
-                    `Everything is ready to go!`
-                )
-                .setFooter({ text: 'HEXA Auto Setup • Set up in seconds' });
+                .setTitle('📋 Server Type Selected')
+                .setDescription(`**Step 2/9: Customize Channel Names**\n\nYou selected: **${serverType.toUpperCase()}** server\n\nPress "Next" to customize channel names or "Skip" for defaults.`)
+                .setFooter({ text: 'HEXA AutoSetup | Step 2 of 9' });
 
-            await interaction.editReply({ embeds: [embed] });
+            const confirmButtons = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('customize_channels')
+                        .setLabel('✏️ Customize')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId('skip_channels')
+                        .setLabel('⏭️ Skip')
+                        .setStyle(ButtonStyle.Secondary)
+                );
 
-            console.log(`[AUTOSETUP] Server ${guild.name} (${guild.id}) fully configured`);
+            typeMessage.edit({
+                embeds: [confirmEmbed],
+                components: [confirmButtons]
+            });
 
-        } catch (error) {
-            console.error('[AUTOSETUP] Error:', error.message);
-            await interaction.editReply(`Setup failed: ${error.message}`);
-        }
+            typeCollector.stop();
+
+            const confirmCollector = typeMessage.createMessageComponentCollector({
+                filter: i => i.user.id === userId,
+                time: 300000
+            });
+
+            confirmCollector.on('collect', async (confirmButtonInteraction) => {
+                await confirmButtonInteraction.deferUpdate();
+
+                if (confirmButtonInteraction.customId === 'customize_channels') {
+                    // Open modal for channel customization
+                    const channelModal = new ModalBuilder()
+                        .setCustomId('channel_names_modal')
+                        .setTitle('Customize Channel Names');
+
+                    const defaultChannels = getDefaultChannels(serverType);
+
+                    channelModal.addComponents(
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('general_channel')
+                                .setLabel('General Channel')
+                                .setStyle(TextInputStyle.Short)
+                                .setValue(defaultChannels.general)
+                                .setRequired(true)
+                        ),
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('announcements_channel')
+                                .setLabel('Announcements Channel')
+                                .setStyle(TextInputStyle.Short)
+                                .setValue(defaultChannels.announcements)
+                                .setRequired(true)
+                        ),
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('rules_channel')
+                                .setLabel('Rules Channel')
+                                .setStyle(TextInputStyle.Short)
+                                .setValue(defaultChannels.rules)
+                                .setRequired(true)
+                        )
+                    );
+
+                    await confirmButtonInteraction.showModal(channelModal);
+                } else {
+                    // Skip to next step
+                    await proceedToSetup(interaction, serverType, getDefaultChannels(serverType));
+                }
+
+                confirmCollector.stop();
+            });
+
+            confirmCollector.on('end', () => {
+                typeMessage.edit({ components: [] }).catch(() => {});
+            });
+        });
+
+        typeCollector.on('end', () => {
+            if (!serverType) {
+                typeMessage.edit({ components: [] }).catch(() => {});
+            }
+        });
+
+        // Modal submission
+        interaction.client.on('interactionCreate', async (modalInteraction) => {
+            if (!modalInteraction.isModalSubmit()) return;
+            if (modalInteraction.customId !== 'channel_names_modal') return;
+            if (modalInteraction.user.id !== userId) return;
+
+            await modalInteraction.deferReply();
+
+            const customChannels = {
+                general: modalInteraction.fields.getTextInputValue('general_channel'),
+                announcements: modalInteraction.fields.getTextInputValue('announcements_channel'),
+                rules: modalInteraction.fields.getTextInputValue('rules_channel')
+            };
+
+            await proceedToSetup(modalInteraction, serverType, customChannels);
+        });
     }
 };
 
-async function createChannels(guild) {
-    const channels = {};
+// ─── Helper Functions ───────────────────────────────────────────
 
-    const channelConfigs = [
-        { name: 'verify', topic: 'Verification system - Complete the 2-step process' },
-        { name: 'announcements', topic: 'Important updates and announcements' },
-        { name: 'rules', topic: 'Server rules and guidelines' },
-        { name: 'hexa-dev-hub', topic: 'Chat with HEXA AI' }
-    ];
-
-    for (const config of channelConfigs) {
-        try {
-            const existing = guild.channels.cache.find(ch => ch.name === config.name);
-            if (existing) {
-                channels[config.name] = existing;
-                console.log(`[AUTOSETUP] Using existing channel: #${config.name}`);
-            } else {
-                const created = await guild.channels.create({
-                    name: config.name,
-                    type: ChannelType.GuildText,
-                    topic: config.topic
-                });
-                channels[config.name] = created;
-                console.log(`[AUTOSETUP] Created channel: #${config.name}`);
-            }
-        } catch (e) {
-            console.error(`[AUTOSETUP] Failed to create/find #${config.name}:`, e.message);
+function getDefaultChannels(serverType) {
+    const templates = {
+        gaming: {
+            general: 'general',
+            announcements: 'announcements',
+            rules: 'rules',
+            voice: 'gaming-voice',
+            events: 'events'
+        },
+        study: {
+            general: 'general',
+            announcements: 'announcements',
+            rules: 'rules',
+            resources: 'resources',
+            questions: 'questions'
+        },
+        business: {
+            general: 'general',
+            announcements: 'announcements',
+            rules: 'rules',
+            projects: 'projects',
+            updates: 'updates'
+        },
+        community: {
+            general: 'general',
+            announcements: 'announcements',
+            rules: 'rules',
+            introductions: 'introductions',
+            events: 'events'
+        },
+        creative: {
+            general: 'general',
+            announcements: 'announcements',
+            rules: 'rules',
+            showcase: 'showcase',
+            feedback: 'feedback'
         }
-    }
+    };
 
-    return channels;
+    return templates[serverType] || templates.community;
 }
 
-async function createRoles(guild) {
-    const roles = {};
+async function proceedToSetup(interaction, serverType, channels) {
+    try {
+        const guild = interaction.guild;
+        const guildId = guild.id;
 
-    const roleConfigs = [
-        { name: 'Verified', color: 0x4CBB17 },
-        { name: 'Unverified', color: 0xFF0000 }
-    ];
+        console.log(`[AUTOSETUP] Starting setup for ${serverType} server...`);
 
-    for (const config of roleConfigs) {
-        try {
-            const existing = guild.roles.cache.find(r => r.name === config.name);
-            if (existing) {
-                roles[config.name.toLowerCase()] = existing;
-                console.log(`[AUTOSETUP] Using existing role: ${config.name}`);
-            } else {
-                const created = await guild.roles.create({
-                    name: config.name,
-                    color: config.color
-                });
-                roles[config.name.toLowerCase()] = created;
-                console.log(`[AUTOSETUP] Created role: ${config.name}`);
-            }
-        } catch (e) {
-            console.error(`[AUTOSETUP] Failed to create/find role ${config.name}:`, e.message);
+        // Step 3: Create Roles
+        const progressEmbed = new EmbedBuilder()
+            .setColor(0x00D9FF)
+            .setTitle('⚙️ Setting Up Your Server')
+            .setDescription('**Creating roles and channels...**\n\n🔄 This may take a moment')
+            .setFooter({ text: 'HEXA AutoSetup | Processing' });
+
+        const progressMessage = await interaction.reply({
+            embeds: [progressEmbed],
+            ephemeral: true
+        });
+
+        // Create roles
+        const verifiedRole = await guild.roles.create({
+            name: '✅ Verified',
+            color: '#4CBB17',
+            reason: 'HEXA AutoSetup'
+        });
+
+        const unverifiedRole = await guild.roles.create({
+            name: '❌ Unverified',
+            color: '#FF0000',
+            reason: 'HEXA AutoSetup'
+        });
+
+        const moderatorRole = await guild.roles.create({
+            name: '🛡️ Moderator',
+            color: '#FFD700',
+            reason: 'HEXA AutoSetup'
+        });
+
+        console.log(`[AUTOSETUP] Roles created`);
+
+        // Create channels
+        const createdChannels = {};
+
+        for (const [key, name] of Object.entries(channels)) {
+            const channel = await guild.channels.create({
+                name: name,
+                type: ChannelType.GuildText,
+                reason: 'HEXA AutoSetup'
+            });
+            createdChannels[key] = channel;
         }
-    }
 
-    return roles;
-}
+        console.log(`[AUTOSETUP] Channels created`);
 
-async function setupVerification(guild, channels, roles) {
-    try {
-        // Store role IDs in process.env for verification system
-        process.env[`VERIFIED_ROLE_${guild.id}`] = roles.verified?.id || '';
-        process.env[`UNVERIFIED_ROLE_${guild.id}`] = roles.unverified?.id || '';
-        process.env[`VERIFY_CHANNEL_${guild.id}`] = channels.verify?.id || '';
-
-        console.log(`[AUTOSETUP] Verification system configured`);
-    } catch (e) {
-        console.error('[AUTOSETUP] Verification setup failed:', e.message);
-    }
-}
-
-async function sendWelcomeMessages(guild, channels) {
-    const rulesEmbed = new EmbedBuilder()
-        .setColor(0x00D9FF)
-        .setTitle('Welcome to HEXA Dev Hub')
-        .setDescription(
-            `Welcome! We're excited to have you here.\n\n` +
-            `Getting Started:\n` +
-            `1. Read the rules below\n` +
-            `2. Go to #verify and complete verification\n` +
-            `3. Explore the server and use HEXA!\n\n` +
-            `Server Rules:\n` +
-            `• Be respectful to all members\n` +
-            `• No spam, self-promotion, or advertising\n` +
-            `• No explicit or harmful content\n` +
-            `• Follow Discord's Terms of Service\n` +
-            `• English only in public channels\n\n` +
-            `Have fun, be kind, and enjoy HEXA!`
-        )
-        .setFooter({ text: 'HEXA Dev Hub Rules' });
-
-    const verifyEmbed = new EmbedBuilder()
-        .setColor(0x00D9FF)
-        .setTitle('HEXA Verification System')
-        .setDescription(
-            `To access the server, complete our 2-step verification:\n\n` +
-            `Step 1: Answer a simple math question\n` +
-            `Step 2: Enter a one-time code sent to your DMs\n\n` +
-            `This keeps our server safe from bots and spam.\n\n` +
-            `Ready? Type \`/verify\` to start!`
-        )
-        .setFooter({ text: 'HEXA Verification 2.0' });
-
-    const announceEmbed = new EmbedBuilder()
-        .setColor(0x00D9FF)
-        .setTitle('Announcements')
-        .setDescription(
-            `Stay updated on HEXA developments.\n\n` +
-            `This channel contains:\n` +
-            `• New features and updates\n` +
-            `• Bug fixes and improvements\n` +
-            `• Important news\n` +
-            `• Maintenance notices\n\n` +
-            `Enable notifications to never miss an update.`
-        )
-        .setFooter({ text: 'HEXA Announcements' });
-
-    const hexaEmbed = new EmbedBuilder()
-        .setColor(0x00D9FF)
-        .setTitle('Welcome to HEXA AI Chat')
-        .setDescription(
-            `Now that you're verified, explore everything HEXA can do!\n\n` +
-            `Type \`/help\` to see all available commands including:\n` +
-            `• AI chat with \`/chat\`\n` +
-            `• Weather information with \`/weather\`\n` +
-            `• Server stats with \`/stats\`\n` +
-            `• And much more!\n\n` +
-            `Start your journey with HEXA by typing \`/help\` and discovering what she can do for you.`
-        )
-        .setFooter({ text: 'HEXA Dev Hub' });
-
-    try {
-        if (channels.rules) await channels.rules.send({ embeds: [rulesEmbed] });
-        if (channels.verify) await channels.verify.send({ embeds: [verifyEmbed] });
-        if (channels.announcements) await channels.announcements.send({ embeds: [announceEmbed] });
-        if (channels['hexa-dev-hub']) await channels['hexa-dev-hub'].send({ embeds: [hexaEmbed] });
-
-        console.log('[AUTOSETUP] Welcome messages sent');
-    } catch (e) {
-        console.error('[AUTOSETUP] Failed to send messages:', e.message);
-    }
-}
-
-async function setChannelPermissions(guild, channels, roles) {
-    try {
-        const verifiedRole = roles.verified;
-        const unverifiedRole = roles.unverified;
-
-        // Channels that need permission overrides
-        const protectedChannels = ['hexa-dev-hub', 'announcements'];
-
-        for (const channelName of protectedChannels) {
-            const channel = channels[channelName];
-            if (!channel) continue;
-
-            // Deny @everyone
-            await channel.permissionOverwrites.edit(guild.id, {
-                ViewChannel: false
+        // Set permissions
+        for (const channel of Object.values(createdChannels)) {
+            await channel.permissionOverwrites.create(unverifiedRole, {
+                ViewChannel: false,
+                SendMessages: false
             });
 
-            // Allow Verified role
-            if (verifiedRole) {
-                await channel.permissionOverwrites.edit(verifiedRole, {
-                    ViewChannel: true
-                });
-            }
-
-            console.log(`[AUTOSETUP] Permissions set for #${channelName}`);
+            await channel.permissionOverwrites.create(verifiedRole, {
+                ViewChannel: true,
+                SendMessages: true
+            });
         }
-    } catch (e) {
-        console.error('[AUTOSETUP] Permission setup failed:', e.message);
+
+        console.log(`[AUTOSETUP] Permissions configured`);
+
+        // Send welcome message
+        const welcomeEmbed = new EmbedBuilder()
+            .setColor(0x00D9FF)
+            .setTitle('🎉 Welcome to HEXA')
+            .setDescription('This server has been set up with HEXA AI integration.\n\nUse `/chat` to start conversations with HEXA AI!')
+            .addFields(
+                { name: '📚 Getting Started', value: 'Type `/assistant hello` to test HEXA', inline: false },
+                { name: '🔐 Verification', value: 'New members must verify first', inline: false },
+                { name: '💡 Commands', value: 'Use `/help` to see all available commands', inline: false }
+            )
+            .setFooter({ text: 'HEXA AutoSetup Complete' });
+
+        await createdChannels.general.send({ embeds: [welcomeEmbed] });
+
+        // Final completion embed
+        const completionEmbed = new EmbedBuilder()
+            .setColor(0x00D9FF)
+            .setTitle('✅ Server Setup Complete!')
+            .setDescription('**Your server is ready to go!**\n\nHEXA has automatically configured:')
+            .addFields(
+                { name: '✓ Roles Created', value: `✅ Verified\n❌ Unverified\n🛡️ Moderator`, inline: true },
+                { name: '✓ Channels Created', value: Object.values(channels).join('\n'), inline: true },
+                { name: '✓ Permissions Set', value: 'Unverified users can\'t see channels\nVerified users have full access', inline: false },
+                { name: '✓ Features Enabled', value: 'AI chat • Verification • Moderation', inline: false }
+            )
+            .setFooter({ text: 'HEXA AutoSetup | Server ready for your community!' });
+
+        await progressMessage.edit({
+            embeds: [completionEmbed],
+            components: []
+        });
+
+        console.log(`[AUTOSETUP] ✅ Setup complete for guild ${guildId}`);
+
+    } catch (error) {
+        console.error('[AUTOSETUP] Error:', error);
+        await interaction.reply({
+            content: `❌ Setup failed: ${error.message}`,
+            ephemeral: true
+        });
     }
 }
