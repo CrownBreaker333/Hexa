@@ -9,8 +9,8 @@ module.exports = {
     async execute(interaction) {
         await interaction.deferReply();
 
-        const guildId = interaction.guildId;
         const userId = interaction.user.id;
+        const guild = interaction.guild;
 
         // Step 1: Server Type Selection
         const typeEmbed = new EmbedBuilder()
@@ -50,20 +50,18 @@ module.exports = {
             components: [typeButtons]
         });
 
-        // Create collector for server type
+        // Collector for Step 1
         const typeCollector = typeMessage.createMessageComponentCollector({
-            filter: i => i.user.id === userId && i.isButton(),
+            filter: i => i.user.id === userId,
             time: 300000,
             max: 1
         });
 
         typeCollector.on('collect', async (typeInteraction) => {
+            const serverType = typeInteraction.customId.replace('type_', '');
             await typeInteraction.deferUpdate();
 
-            const serverType = typeInteraction.customId.replace('type_', '');
-            console.log(`[AUTOSETUP] User ${userId} selected type: ${serverType}`);
-
-            // Step 2: Confirm & Get Channel Names
+            // Step 2: Customize or Skip
             const confirmEmbed = new EmbedBuilder()
                 .setColor(0x00D9FF)
                 .setTitle('📋 Server Type Selected')
@@ -73,11 +71,11 @@ module.exports = {
             const confirmButtons = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
-                        .setCustomId('customize_channels')
+                        .setCustomId(`customize_${serverType}`)
                         .setLabel('✏️ Customize')
                         .setStyle(ButtonStyle.Success),
                     new ButtonBuilder()
-                        .setCustomId('skip_channels')
+                        .setCustomId(`skip_${serverType}`)
                         .setLabel('⏭️ Skip')
                         .setStyle(ButtonStyle.Secondary)
                 );
@@ -87,42 +85,43 @@ module.exports = {
                 components: [confirmButtons]
             });
 
+            // Collector for Step 2
             const confirmCollector = typeMessage.createMessageComponentCollector({
-                filter: i => i.user.id === userId && i.isButton(),
+                filter: i => i.user.id === userId,
                 time: 300000,
                 max: 1
             });
 
             confirmCollector.on('collect', async (confirmInteraction) => {
-                if (confirmInteraction.customId === 'customize_channels') {
+                if (confirmInteraction.customId.startsWith('customize_')) {
                     // Show modal
                     const defaultChannels = getDefaultChannels(serverType);
                     
                     const channelModal = new ModalBuilder()
-                        .setCustomId(`channels_modal_${userId}`)
+                        .setCustomId(`modal_channels`)
                         .setTitle('Customize Channel Names');
 
                     channelModal.addComponents(
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
-                                .setCustomId('general_channel')
-                                .setLabel('General Channel')
+                                .setCustomId('general_name')
+                                .setLabel('General Channel Name')
                                 .setStyle(TextInputStyle.Short)
                                 .setValue(defaultChannels.general)
                                 .setRequired(true)
                         ),
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
-                                .setCustomId('announcements_channel')
-                                .setLabel('Announcements Channel')
+                                .setCustomId('announcements_name')
+                                .setLabel('Announcements Channel Name')
                                 .setStyle(TextInputStyle.Short)
                                 .setValue(defaultChannels.announcements)
                                 .setRequired(true)
                         ),
                         new ActionRowBuilder().addComponents(
                             new TextInputBuilder()
-                                .setCustomId('rules_channel')
-                                .setLabel('Rules Channel')
+                                .setCustomId('rules_name')
+                                .setLabel('Rules Channel Name')
                                 .setStyle(TextInputStyle.Short)
                                 .setValue(defaultChannels.rules)
                                 .setRequired(true)
@@ -130,27 +129,30 @@ module.exports = {
                     );
 
                     await confirmInteraction.showModal(channelModal);
-                } else {
-                    // Skip to setup
+
+                    // Wait for modal submission
+                    try {
+                        const submitted = await confirmInteraction.awaitModalSubmit({ time: 300000 });
+                        
+                        const customChannels = {
+                            general: submitted.fields.getTextInputValue('general_name'),
+                            announcements: submitted.fields.getTextInputValue('announcements_name'),
+                            rules: submitted.fields.getTextInputValue('rules_name')
+                        };
+
+                        await submitted.deferUpdate();
+                        await performSetup(typeMessage, guild, serverType, customChannels);
+
+                    } catch (error) {
+                        console.error('[AUTOSETUP] Modal timeout or error:', error);
+                    }
+
+                } else if (confirmInteraction.customId.startsWith('skip_')) {
                     await confirmInteraction.deferUpdate();
-                    await proceedToSetup(typeMessage, serverType, getDefaultChannels(serverType), userId);
+                    const defaultChannels = getDefaultChannels(serverType);
+                    await performSetup(typeMessage, guild, serverType, defaultChannels);
                 }
             });
-        });
-
-        // Handle modal submission
-        const modalFilter = (i) => i.user.id === userId && i.isModalSubmit() && i.customId.startsWith('channels_modal_');
-        
-        interaction.client.once('interactionCreate', async (modalInteraction) => {
-            if (!modalFilter(modalInteraction)) return;
-
-            const customChannels = {
-                general: modalInteraction.fields.getTextInputValue('general_channel'),
-                announcements: modalInteraction.fields.getTextInputValue('announcements_channel'),
-                rules: modalInteraction.fields.getTextInputValue('rules_channel')
-            };
-
-            await proceedToSetup(typeMessage, serverType, customChannels, userId);
         });
     }
 };
@@ -159,43 +161,20 @@ module.exports = {
 
 function getDefaultChannels(serverType) {
     const templates = {
-        gaming: {
-            general: 'general',
-            announcements: 'announcements',
-            rules: 'rules'
-        },
-        study: {
-            general: 'general',
-            announcements: 'announcements',
-            rules: 'rules'
-        },
-        business: {
-            general: 'general',
-            announcements: 'announcements',
-            rules: 'rules'
-        },
-        community: {
-            general: 'general',
-            announcements: 'announcements',
-            rules: 'rules'
-        },
-        creative: {
-            general: 'general',
-            announcements: 'announcements',
-            rules: 'rules'
-        }
+        gaming: { general: 'general', announcements: 'announcements', rules: 'rules' },
+        study: { general: 'general', announcements: 'announcements', rules: 'rules' },
+        business: { general: 'general', announcements: 'announcements', rules: 'rules' },
+        community: { general: 'general', announcements: 'announcements', rules: 'rules' },
+        creative: { general: 'general', announcements: 'announcements', rules: 'rules' }
     };
-
     return templates[serverType] || templates.community;
 }
 
-async function proceedToSetup(message, serverType, channels, userId) {
+async function performSetup(message, guild, serverType, channels) {
     try {
-        const guild = message.guild;
-
         console.log(`[AUTOSETUP] Starting setup for ${serverType} server...`);
 
-        // Progress embed
+        // Show progress
         const progressEmbed = new EmbedBuilder()
             .setColor(0x00D9FF)
             .setTitle('⚙️ Setting Up Your Server')
@@ -226,7 +205,7 @@ async function proceedToSetup(message, serverType, channels, userId) {
             reason: 'HEXA AutoSetup'
         });
 
-        console.log(`[AUTOSETUP] Roles created`);
+        console.log(`[AUTOSETUP] ✓ Roles created`);
 
         // Create channels
         const createdChannels = {};
@@ -240,7 +219,7 @@ async function proceedToSetup(message, serverType, channels, userId) {
             createdChannels[key] = channel;
         }
 
-        console.log(`[AUTOSETUP] Channels created`);
+        console.log(`[AUTOSETUP] ✓ Channels created`);
 
         // Set permissions
         for (const channel of Object.values(createdChannels)) {
@@ -255,7 +234,7 @@ async function proceedToSetup(message, serverType, channels, userId) {
             });
         }
 
-        console.log(`[AUTOSETUP] Permissions configured`);
+        console.log(`[AUTOSETUP] ✓ Permissions configured`);
 
         // Send welcome message
         const welcomeEmbed = new EmbedBuilder()
@@ -270,6 +249,8 @@ async function proceedToSetup(message, serverType, channels, userId) {
             .setFooter({ text: 'HEXA AutoSetup Complete' });
 
         await createdChannels.general.send({ embeds: [welcomeEmbed] });
+
+        console.log(`[AUTOSETUP] ✓ Welcome message sent`);
 
         // Final completion embed
         const completionEmbed = new EmbedBuilder()
@@ -289,9 +270,17 @@ async function proceedToSetup(message, serverType, channels, userId) {
             components: []
         });
 
-        console.log(`[AUTOSETUP] ✅ Setup complete for guild ${guild.id}`);
+        console.log(`[AUTOSETUP] ✅ Setup complete for ${guild.name}`);
 
     } catch (error) {
         console.error('[AUTOSETUP] Error:', error);
+        await message.edit({
+            embeds: [new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('❌ Setup Failed')
+                .setDescription(`Error: ${error.message}`)
+            ],
+            components: []
+        });
     }
 }
