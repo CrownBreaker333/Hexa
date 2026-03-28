@@ -1,55 +1,51 @@
 // DATA MANAGER
-// Utility functions for data persistence and initialization
-// Centralizes directory creation and file operations
+// Handles JSON file storage for conversations, preferences, data
 
 const fs = require('fs');
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '../data');
 
-function ensureDataDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    return DATA_DIR;
-}
-
-function getDataPath(filename) {
-    ensureDataDir();
-    return path.join(DATA_DIR, filename);
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function loadJSON(filename) {
-    const filePath = getDataPath(filename);
-    
-    if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, JSON.stringify({}));
-    }
-    
     try {
-        return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const filePath = path.join(DATA_DIR, filename);
+        if (!fs.existsSync(filePath)) {
+            return {};
+        }
+        const data = fs.readFileSync(filePath, 'utf8');
+        return JSON.parse(data);
     } catch (error) {
-        console.error(`Error reading ${filename}:`, error);
+        console.error(`Error loading ${filename}:`, error.message);
         return {};
     }
 }
 
 function saveJSON(filename, data) {
-    const filePath = getDataPath(filename);
-    
     try {
-        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-        return true;
+        const filePath = path.join(DATA_DIR, filename);
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
     } catch (error) {
-        console.error(`Error writing ${filename}:`, error);
-        return false;
+        console.error(`Error saving ${filename}:`, error.message);
+    }
+}
+
+function appendJSON(filename, key, value) {
+    try {
+        const data = loadJSON(filename);
+        data[key] = value;
+        saveJSON(filename, data);
+    } catch (error) {
+        console.error(`Error appending to ${filename}:`, error.message);
     }
 }
 
 module.exports = {
-    ensureDataDir,
-    getDataPath,
     loadJSON,
     saveJSON,
-    DATA_DIR
+    appendJSON
 };
