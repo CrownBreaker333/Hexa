@@ -1,119 +1,82 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { askAI } = require('../utils/aiClient');
-const { incrementUsage, canUse } = require('../utils/limits');
-const { getDailyLimit, getUserTier } = require('../utils/premium');
-const { saveConversation } = require('../utils/memoryManager');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('assistant')
-        .setDescription('Start chatting with HEXA in a thread')
+        .setDescription('Start a conversation with HEXA in this thread')
         .addStringOption(option =>
-            option.setName('message')
-                .setDescription('Your first message for HEXA')
+            option
+                .setName('message')
+                .setDescription('Your message to HEXA')
                 .setRequired(true)
         ),
 
     async execute(interaction) {
-        await interaction.deferReply({ flags: 64 });
-        if (!interaction.channel.isThread()) {
-            return interaction.editReply('This command only works in chat threads. Use `/chat` to create one.');
-        }
-
+        const message = interaction.options.getString('message');
         const userId = interaction.user.id;
         const guildId = interaction.guildId;
-        const tier = getUserTier(userId);
-        const message = interaction.options.getString('message');
 
-        const dailyLimit = getDailyLimit(userId, guildId);
-        if (!canUse(userId, dailyLimit)) {
-            return interaction.editReply(`Daily limit reached: ${dailyLimit} messages.`);
+        // Check if in thread
+        if (!interaction.channel.isThread()) {
+            await interaction.reply({
+                content: 'This command only works inside threads. Use `/chat` to create a thread first.',
+                ephemeral: true
+            });
+            return;
         }
 
+        await interaction.deferReply();
+
         try {
-            await interaction.channel.sendTyping();
+            // Get AI response
+            const response = await askAI(userId, message, guildId);
 
-            const answer = await askAI(userId, message, guildId);
-            incrementUsage(userId);
-
-            try {
-                saveConversation(userId, message, answer);
-            } catch (e) {
-                console.error('Error saving:', e);
-            }
-
-            const truncatedAnswer = answer.length > 1700
-                ? answer.substring(0, 1700) + '...'
-                : answer;
-
+            // Create embed for response
             const embed = new EmbedBuilder()
                 .setColor(0x00D9FF)
-                .setAuthor({ name: 'HEXA', iconURL: interaction.client.user.avatarURL() })
-                .setDescription(truncatedAnswer)
-                .setFooter({ text: `Tier: ${tier}` })
-                .setTimestamp();
+                .setDescription(response)
+                .setFooter({ text: `Responded to: ${interaction.user.username}` });
 
             await interaction.editReply({ embeds: [embed] });
 
-            // Set up listener for natural conversation
-            setupNaturalChat(interaction.channel, userId, guildId, tier, interaction.client);
-
-            console.log(`[ASSISTANT] Started in thread: ${interaction.channel.name}`);
+            // Setup natural chat listener
+            setupNaturalChat(interaction);
 
         } catch (error) {
-            console.error('Assistant error:', error);
-            await interaction.editReply('Something went wrong. Try again.');
+            console.error('[ASSISTANT] Error:', error);
+            await interaction.editReply({
+                content: 'An error occurred while processing your request.',
+                ephemeral: true
+            });
         }
     }
 };
 
-function setupNaturalChat(thread, userId, guildId, tier, client) {
-    const collector = thread.createMessageCollector({
-        filter: m => m.author.id === userId && !m.author.bot,
-        idle: 3600000
+function setupNaturalChat(interaction) {
+    const filter = m => m.author.id === interaction.user.id && !m.author.bot;
+    const collector = interaction.channel.createMessageCollector({
+        filter,
+        idle: 3600000 // 1 hour idle timeout
     });
 
-    collector.on('collect', async message => {
+    collector.on('collect', async (msg) => {
         try {
-            const userMessage = message.content;
-
-            const dailyLimit = getDailyLimit(userId, guildId);
-            if (!canUse(userId, dailyLimit)) {
-                await thread.send(`Daily limit reached: ${dailyLimit} messages.`).catch(() => {});
-                return;
-            }
-
-            await thread.sendTyping().catch(() => {});
-
-            const answer = await askAI(userId, userMessage, guildId);
-            incrementUsage(userId);
-
-            try {
-                saveConversation(userId, userMessage, answer);
-            } catch (e) {
-                console.error('Error saving:', e);
-            }
-
-            const truncatedAnswer = answer.length > 1700
-                ? answer.substring(0, 1700) + '...'
-                : answer;
+            await interaction.channel.sendTyping();
+            const response = await askAI(msg.author.id, msg.content, interaction.guildId);
 
             const embed = new EmbedBuilder()
                 .setColor(0x00D9FF)
-                .setAuthor({ name: 'HEXA', iconURL: client.user.avatarURL() })
-                .setDescription(truncatedAnswer)
-                .setFooter({ text: `Tier: ${tier}` })
-                .setTimestamp();
+                .setDescription(response)
+                .setFooter({ text: `Responded to: ${msg.author.username}` });
 
-            await thread.send({ embeds: [embed] }).catch(err => {
-                console.error('[CHAT] Failed to send:', err);
-            });
-
-            console.log(`[NATURAL-CHAT] Response in thread`);
-
+            await msg.reply({ embeds: [embed] });
         } catch (error) {
-            console.error('[NATURAL-CHAT] Error:', error);
-            await thread.send('Something went wrong.').catch(() => {});
+            console.error('[NATURAL CHAT] Error:', error);
         }
+    });
+
+    collector.on('end', () => {
+        console.log('[NATURAL CHAT] Collector ended - timeout');
     });
 }
