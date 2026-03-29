@@ -32,17 +32,6 @@ const MODELS = {
   or_vision:      { client: openrouter,  id: 'google/gemma-3-27b-it:free' },
   or_longctx:     { client: openrouter,  id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' },
   or_fast_plus:   { client: openrouter,  id: 'stepfun/step-3-5-flash:free' },
-  
-  // OpenRouter fallback chain
-  or_primary:     { client: openrouter,  id: 'openai/gpt-oss-120b:free' },
-  or_reasoning:   { client: openrouter,  id: 'deepseek/deepseek-r1-0528:free' },
-
-  // OpenRouter task-routed specialists
-  or_coding:      { client: openrouter,  id: 'mistralai/devstral-2507:free' },
-  or_coding_alt:  { client: openrouter,  id: 'qwen/qwen3-coder:free' },
-  or_vision:      { client: openrouter,  id: 'google/gemma-3-27b-it:free' },
-  or_longctx:     { client: openrouter,  id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' },
-  or_fast_plus:   { client: openrouter,  id: 'stepfun/step-3-5-flash:free' },
 };
 
 // ─── Task router ──────────────────────────────────────────────────
@@ -51,8 +40,7 @@ function routeModel(task, messageLength = 0) {
   if (task === 'vision')          return MODELS.or_vision;
   if (task === 'reasoning')       return MODELS.or_reasoning;
   if (messageLength > 50000)      return MODELS.or_longctx;
-  if (task === 'simple')          return MODELS.groq_instant;
-  return MODELS.groq_fast; // default
+  return MODELS.groq_fast; // default for all other tasks (simple, general, conversation)
 }
 
 // ─── Core chat function with fallback chain ────────────────────────
@@ -61,7 +49,7 @@ async function chat(messages, { task = 'general', userId = null } = {}) {
   
   console.log(`[HEXA AI] Processing ${task} task (${msgLength} chars) for ${userId}`);
 
-  // Task-based routing first (no fallback needed for specialists)
+  // Task-based routing (coding, vision, reasoning only)
   if (['coding', 'vision', 'reasoning'].includes(task)) {
     const model = routeModel(task, msgLength);
     console.log(`[HEXA AI] Task routing to specialist: ${model.id}`);
@@ -74,9 +62,8 @@ async function chat(messages, { task = 'general', userId = null } = {}) {
     }
   }
 
-  // Main fallback chain
+  // Main fallback chain for all other tasks
   const chain = [
-    msgLength > 50000 ? MODELS.or_longctx : MODELS.groq_instant,
     MODELS.groq_fast,
     MODELS.groq_reasoning,
     MODELS.or_primary,
