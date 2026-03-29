@@ -19,10 +19,20 @@ const openrouter = new OpenAI({
 // ─── Model registry ───────────────────────────────────────────────
 const MODELS = {
   // Groq tiers (ultra-fast, free)
-  groq_instant:   { client: groq,        id: 'meta-llama/llama-3.2-3b-instruct' },
   groq_fast:      { client: groq,        id: 'llama-3.1-8b-instant' },
   groq_reasoning: { client: groq,        id: 'llama-3.3-70b-versatile' },
 
+  // OpenRouter fallback chain
+  or_primary:     { client: openrouter,  id: 'openai/gpt-oss-120b:free' },
+  or_reasoning:   { client: openrouter,  id: 'deepseek/deepseek-r1-0528:free' },
+
+  // OpenRouter task-routed specialists
+  or_coding:      { client: openrouter,  id: 'mistralai/devstral-2507:free' },
+  or_coding_alt:  { client: openrouter,  id: 'qwen/qwen3-coder:free' },
+  or_vision:      { client: openrouter,  id: 'google/gemma-3-27b-it:free' },
+  or_longctx:     { client: openrouter,  id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' },
+  or_fast_plus:   { client: openrouter,  id: 'stepfun/step-3-5-flash:free' },
+  
   // OpenRouter fallback chain
   or_primary:     { client: openrouter,  id: 'openai/gpt-oss-120b:free' },
   or_reasoning:   { client: openrouter,  id: 'deepseek/deepseek-r1-0528:free' },
