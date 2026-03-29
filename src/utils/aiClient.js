@@ -90,9 +90,15 @@ async function chat(messages, { task = 'general', userId = null } = {}) {
 
 // ─── Shared model caller ──────────────────────────────────────────
 async function callModel(model, messages) {
+  // CLEAN MESSAGES - Remove any extra properties
+  const cleanMessages = messages.map(msg => ({
+    role: msg.role,
+    content: msg.content
+  }));
+
   const res = await model.client.chat.completions.create({
     model: model.id,
-    messages,
+    messages: cleanMessages,
     max_tokens: 1024,
   });
   return res.choices[0].message.content;
