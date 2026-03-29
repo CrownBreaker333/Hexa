@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { chat } = require('../utils/aiClient');
 const { detectTaskType } = require('../utils/taskDetector');
 const { loadJSON, saveJSON } = require('../utils/dataManager');
@@ -29,7 +29,11 @@ module.exports = {
             return;
         }
 
-        await interaction.deferReply();
+        // IMMEDIATE RESPONSE (within 3 seconds)
+        await interaction.reply({
+            content: 'Processing your request...',
+            ephemeral: false
+        });
 
         try {
             // Detect task type
@@ -52,7 +56,8 @@ module.exports = {
             // Get user personality
             const persona = getUserPersona(userId, guildId);
 
-            // Get AI response
+            // GET AI RESPONSE (this can take time)
+            console.log('[ASSISTANT] Waiting for AI response...');
             const response = await chat(messages, { task, userId });
 
             // Save to conversation history
@@ -65,22 +70,30 @@ module.exports = {
 
             console.log(`[ASSISTANT] Response generated (${response.length} chars)`);
 
-            // Create embed response
+            // CREATE EMBED RESPONSE
             const embed = new EmbedBuilder()
                 .setColor(0x00D9FF)
                 .setDescription(response)
                 .setFooter({ text: `Personality: ${persona} | Task: ${task}` });
 
-            await interaction.editReply({ embeds: [embed] });
+            // EDIT THE INITIAL REPLY WITH ACTUAL RESPONSE
+            await interaction.editReply({ 
+                content: null,
+                embeds: [embed] 
+            });
 
             // Setup natural chat listener
             setupNaturalChat(interaction, userId, guildId);
 
         } catch (error) {
             console.error('[ASSISTANT] Error:', error);
+            
+            // EDIT WITH ERROR MESSAGE
             await interaction.editReply({
                 content: `Error: ${error.message}`,
-                ephemeral: true
+            }).catch(() => {
+                // If edit fails, just log it
+                console.error('[ASSISTANT] Could not edit reply');
             });
         }
     }
@@ -97,6 +110,7 @@ function setupNaturalChat(interaction, userId, guildId) {
 
     collector.on('collect', async (msg) => {
         try {
+            // Show typing indicator
             await interaction.channel.sendTyping();
 
             // Detect task
@@ -135,7 +149,7 @@ function setupNaturalChat(interaction, userId, guildId) {
 
         } catch (error) {
             console.error('[NATURAL CHAT] Error:', error);
-            await msg.reply('Sorry, I had trouble responding. Try again.');
+            await msg.reply(`Sorry, I had trouble responding. Error: ${error.message}`);
         }
     });
 
