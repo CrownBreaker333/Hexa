@@ -1,8 +1,9 @@
 // AI CLIENT - INTELLIGENT 11-MODEL FALLBACK CHAIN
 // Groq + OpenRouter with task-aware routing
 
-import Groq from 'groq-sdk';
-import OpenAI from 'openai';
+const Groq = require('groq-sdk');
+const OpenAI = require('openai');
+require('dotenv').config();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -45,7 +46,7 @@ function routeModel(task, messageLength = 0) {
 }
 
 // ─── Core chat function with fallback chain ────────────────────────
-export async function chat(messages, { task = 'general', userId = null } = {}) {
+async function chat(messages, { task = 'general', userId = null } = {}) {
   const msgLength = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
   
   console.log(`[HEXA AI] Processing ${task} task (${msgLength} chars) for ${userId}`);
@@ -59,7 +60,7 @@ export async function chat(messages, { task = 'general', userId = null } = {}) {
       console.log(`[HEXA AI] SUCCESS from specialist model`);
       return result;
     } catch (err) {
-      console.warn(`[HEXA AI] Task model failed (${task}): ${err.message}`);
+      console.error(`[HEXA AI] Task model failed (${task}): ${err.message}`);
     }
   }
 
@@ -79,7 +80,7 @@ export async function chat(messages, { task = 'general', userId = null } = {}) {
       console.log(`[HEXA AI] SUCCESS from ${model.id}`);
       return result;
     } catch (err) {
-      console.warn(`[HEXA AI] Model ${model.id} failed: ${err.message}`);
+      console.error(`[HEXA AI] Model ${model.id} failed: ${err.message}`);
       continue;
     }
   }
@@ -97,4 +98,8 @@ async function callModel(model, messages) {
   return res.choices[0].message.content;
 }
 
-export { MODELS, routeModel };
+module.exports = {
+  chat,
+  MODELS,
+  routeModel
+};
